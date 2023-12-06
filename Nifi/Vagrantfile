@@ -1,0 +1,88 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+require 'yaml'
+VAGRANTFILE_API_VERSION = "2"
+
+#if ENV['USER_PWD'].nil? || ENV['USER_PWD'].empty?
+#  raise 'Set your windows password in var USER_PWD, eg: USER_PWD=your_pwd vagrant up xxx'
+#end
+
+
+node = [
+  {:hostname => 'zk-cluster-1', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'zk-cluster-2', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'zk-cluster-3', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'nifi-1', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'nifi-2', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'nifi-3', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'kafka-1', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => 'kafka-2', :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => "kafka-3", :ram => 1024, :box => "geerlingguy/centos7"},
+  {:hostname => "nifi-manager", :ram => 1024, :box => "geerlingguy/centos7"}
+]
+
+Vagrant.configure(2) do |config|
+  ## Configuration du proxy (si le plugin nécessaire est installé)
+  #if Vagrant.has_plugin?("vagrant-proxyconf")
+    #config.proxy.http           = "http://#{ENV['USER']}:#{ENV['USER_PWD']}@192.168.240.80:8080"
+    #config.proxy.https          = "https://#{ENV['USER']}:#{ENV['USER_PWD']}@192.168.240.80:8080"
+    #config.yum_proxy.http       = "http://#{ENV['USER']}:#{ENV['USER_PWD']}@192.168.240.80:8080"
+    #config.proxy.no_proxy       = "#{ENV['no_proxy']}"
+  #end
+
+  # Détection de l'environnement d'exécution (Cygwin)
+#  ENV["VAGRANT_DETECTED_OS"] = ENV["VAGRANT_DETECTED_OS"].to_s + " cygwin"
+
+  config.vm.network "private_network", type: "dhcp", name: "vboxnet0"
+  config.vm.disk :disk, name: "disk", size: "50GB"
+
+  node.each do |n|
+    config.vm.define n[:hostname] do |nc|
+      nc.vm.box = n[:box];
+      nc.vm.hostname = n[:hostname]
+     # nc.vm.provision "shell", path: "install/base.sh"
+      if n[:hostname].include? "docker"
+        nc.vm.provision "docker" do |ncd|
+          ncd.run "falcon-zookeeper", image: "centos:7"
+          ncd.run "falcon-hazelcast", image: "centos:7"
+          ncd.run "falcon-tomcat", image: "centos:7"
+        end
+      elsif n[:hostname].include? "salt"
+        if n[:type].include? "masterless"
+          nc.vm.provision "salt" do |ncsalt|
+            ncsalt.install_type = "stable"
+            ncsalt.version = "2016.11.3"
+            ncsalt.masterless = true
+            ncsalt.log_level = "all"
+            ncsalt.minion_config = "/vagrant/config/salt/salt_conf/minion/minion"
+          end
+        else
+          if n[:type].include? "master"
+            nc.vm.provision "shell", :inline => "sudo yum install -y salt-master"
+          else
+            nc.vm.provision "shell", :inline => "sudo yum install -y salt-minion"
+          end
+          if n[:need].include? "docker"
+            nc.vm.provision "shell", path: "install/docker.sh"
+          end
+        end
+      elsif n[:hostname].include? "Nomad"
+        nc.config.provision "shell", path: "install/nomad.sh"
+        if n[:need].include? "docker"
+          nc.vm.provision "shell", path: "install/docker.sh"
+        end
+      elsif n[:hostname].include? "kube"
+        nc.config.provision "shell", path: "install/kube.sh"
+      end
+      memory = n[:ram] ? n[:ram] : 256;
+      cpu = n[:cpu] ? n[:cpu] : 1;
+      nc.vm.provider :virtualbox do |ncvb|
+        ncvb.customize [
+          "modifyvm", :id,
+          "--memory", memory.to_s
+        ]
+      end
+    end
+  end
+end

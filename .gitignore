@@ -1,0 +1,5 @@
+*.zip
+*.tgz
+*.tar.gz
+nifi-1.23.2/
+.vagrant/
