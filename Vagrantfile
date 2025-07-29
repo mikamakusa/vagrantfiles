@@ -22,11 +22,31 @@ vagrant.configure(2) do |config|
             nc.vm.box = n[:box]
             nc.vm.hostname = n[:hostname]
             memory = n[:ram] ? n[:ram]: 256;
-            nc.vm.provider :virtualbox do |ncvb|
-                ncvb.customize [
-                     "modifyvm", :id,
-                     "--memory", memory.to_s
-               ]
+            cpu = n[:cpu] ? n[:cpu]: 1;
+            if n[:provider].include? "virtualbox"
+                nc.vm.provider "virtualbox" do |ncvb|
+                    ncvb.memory = memory
+                    ncvb.cpus = cpu
+                end
+            elif n[:provider].include? "vmware_fusion"
+                nc.vm.provider "vmware_desktop" do |ncvw|
+                    ncvw.vmx["memsize"] = memory.to_s
+                    ncvw.vmx["numvcpus"] = cpu.to_s
+                end
+            elif n[:provider].include? "docker"
+                nc.vm.provider "docker" do |ncd|
+                    ncd.image = n[:image]
+                end
+            elif n[:provider].include? "hyperv"
+                nc.vm.provider "hyperv" do |nchv|
+                    nchv.vm_integration_services = {
+                      guest_service_interface: true,
+                      CustomVMSRV: true,
+                      memory: memory,
+                      cpus: cpu,
+                      vm_name: n[:hostname]
+                    }
+                end
             end
             if n[:provision].include? "shell"
                 nc.vm.provision "shell", path: n[:path]
